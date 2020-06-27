@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>FilaSinFila</title>
+    {{!-- BOOTSWATCH --}}
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootswatch/4.5.0/lux/bootstrap.min.css">
+    {{!-- TEXT SECURITY CSS --}}
+    <link rel="stylesheet" href="https://raw.githubusercontent.com/noppa/text-security/master/dist/text-security.css">
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+    {{>navigation}}
+    <div class="container p-4">
+        {{{body}}}
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/timeago.js/4.0.2/timeago.full.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
