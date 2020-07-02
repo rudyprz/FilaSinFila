@@ -8,6 +8,7 @@ const app = express();
 
 // Settings
 app.set('port', process.env.PORT || 3000);
+/*
 app.set('views', path.join(__dirname, 'views'));
 app.engine('.hbs', exphbs({
     layoutsDir: path.join(app.get('views'), 'layouts'),
@@ -17,6 +18,7 @@ app.engine('.hbs', exphbs({
     helpers: require('./libs/handlebars')
 }));
 app.set('view engine', '.hbs')
+*/
 
 // Middlewares
 app.use(morgan('dev'));
