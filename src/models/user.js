@@ -3,20 +3,21 @@ const uniqueValidator = require('mongoose-unique-validator')
 
 // Roles
 const roles = {
-    values: ['ADMIN', 'BUSINESS', 'USER'],
+    values: ['ADMIN', 'USER'],
     message: '{VALUE} no es un ról válido'
 }
 
 const userSchema = new Schema({
-    nombre: { type: String, required: [true, 'El nombre es necesario'] },
+    userID: String,
+    role: { type: String, default: 'USER', enum: roles },
+    nombre: { type: String },
     email: { type: String, unique: true, required: [true, 'Email es necesario'] },
     telefono: { type: String, required: [true, 'Teléfono es necesario'] },
     pass: { type: String, required: [true, 'Contraseña es necesaria'] },
     date: { type: Date, default: Date.now },
-    role: { type: String, default: 'USER', enum: roles },
     negocioActual: String,
     turnoActual: String,
-    sms: {type: Boolean, default: true}
+    sms: {type: String, default: 'SMS'}
 });
 
 // Validaror

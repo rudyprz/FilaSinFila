@@ -9,25 +9,25 @@ const client = require('twilio')(config.accountSid, config.authToken);
 
 
  
-function sendCode(phone) {
+async function sendCode(phone) {
     console.log("PHONE: " + phone)
-    client.verify.services('VA45fe8e9ce95313de260a1b9beef9e874')
-        .verifications
-        .create({to: phone, channel: 'sms'})
-        .then(verification => {
-            console.log('Status funcion:' + verification.status)
-            return verification.status
-        });    
+    try {
+        const verification = await client.verify.services('VA45fe8e9ce95313de260a1b9beef9e874').verifications.create({to: phone, channel: 'sms'})
+        console.log('Status funcion:' + verification.status)
+        return verification
+    } catch (error) {
+        console.log(error)
+    }
 }
 
-function verifyCode(phone, code) {
-    client.verify.services('VA45fe8e9ce95313de260a1b9beef9e874')
-        .verificationChecks
-        .create({to: phone, code: code})
-        .then(verification_check => {
-            console.log(verification_check.status)
-            return verification_check.status
-        });
+async function verifyCode(phone, code) {
+    try {
+        const verification_check = await client.verify.services('VA45fe8e9ce95313de260a1b9beef9e874').verificationChecks.create({to: phone, code: code})
+        console.log(verification_check.status)
+        return verification_check
+    } catch (error) {
+        console.log(error)
+    }
 }
 
 module.exports = {sendCode, verifyCode}

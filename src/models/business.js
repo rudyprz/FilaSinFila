@@ -1,16 +1,14 @@
 const {Schema, model} = require('mongoose')
 
 const businessSchema = new Schema({
-    nombre: String,
-    email: String,
-    telefono: String,
-    negocioId: String,
+    businessID: String,
+    ownerID: String,
     nombreC: String,
     direccionC: String,
-    nombreF: String,
-    direccionF: String,
-    turnoActual: String,
-    sms: {type: Boolean, default: true}
+    tokens: Number,
+    turnoActual: Number,
+    personasActual: Number,
+    maxPersonas: Number
 });
 
 module.exports = model('business', businessSchema);
