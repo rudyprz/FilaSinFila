@@ -13,7 +13,8 @@ const associateSchema = new Schema({
     email: String,
     telefono: String,
     pass: String,
-    businessID: String
+    businessID: String,
+    ownerID: String
 });
 
 module.exports = model('associate', associateSchema);

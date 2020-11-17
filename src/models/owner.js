@@ -14,7 +14,9 @@ const ownerSchema = new Schema({
     telefono: String,
     pass: String,
     nombreF: String,
-    direccionF: String
+    direccionF: String,
+    resetLink: {type: String, default:''},
+    resetExpires: {type: Date, default: ''}
 });
 
 module.exports = model('owner', ownerSchema);

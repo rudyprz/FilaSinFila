@@ -1,13 +1,13 @@
 const {Schema, model} = require('mongoose')
 
-const turnsSchema = new Schema({
+const ratesSchema = new Schema({
     userID: String,
     businessID: String,
     date: { type: Date, default: Date.now },
-    status: String,
-    turnoAsignado: Number
+    rateOverall: Number,
+    rateTime: Number
 },{
     timestamps: true
 });
 
-module.exports = model('turns', turnsSchema);
+module.exports = model('rates', ratesSchema);

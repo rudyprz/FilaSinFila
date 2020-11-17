@@ -32,6 +32,6 @@ app.use('/api', require('./routes/index.routes'));
 // Static Files & Middleware History Mode
 const history = require('connect-history-api-fallback');
 app.use(history());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(decodeURIComponent(path.join(__dirname, 'public'))));
 
 module.exports = app;

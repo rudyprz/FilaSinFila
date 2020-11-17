@@ -7,23 +7,139 @@ const User = require('../models/user')
 const Owner = require('../models/owner')
 const Business = require('../models/business')
 const Associate = require('../models/associate')
+const Turns = require('../models/turns')
+const Rates = require('../models/rates')
 const bcrypt = require('bcrypt')
+const crypto = require('crypto')
 const {getSocket} = require('../sockets')
 const _ = require('underscore');
 const jwt = require('jsonwebtoken');
 
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+// const mailgun = require("mailgun-js");
+// const DOMAIN = 'sandbox8bd3a94342c64f6e8e86dd9bd14993af.mailgun.org';
+// const mg = mailgun({apiKey: process.env.MG_API, domain: DOMAIN});
+
+const sgMail = require('@sendgrid/mail');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
 const saltRounds = 10
+
+const paymentIntent = async (req, res) => {
+  console.log(req.body)
+
+  stripe.charges.create(
+    {
+      amount: req.body.amount,
+      currency: 'mxn',
+      source: req.body.source,
+      description: req.body.description
+    },
+    function(err, charge) {
+      // asynchronously called
+      if(err){
+        console.log(err)
+        return res.status(400).json({mensaje: "Error de procesamiento de pago"})
+      }else{
+        console.log(charge)
+        return res.status(200).json(charge)
+      }
+    }
+  );
+
+  /*const paymentIntent = await stripe.paymentIntents.create({
+    amount: 2500,
+    currency: "mxn"
+  })
+  res.send({
+    clientSecret: paymentIntent.client_secret
+  })*/
+}
+
+const forgotPass = async (req, res) => {
+  const ownerDB = await Owner.findOne({email: req.body.email})
+  if(!ownerDB){
+    return res.status(400).json({
+      mensaje: 'No existe este correo registrado'
+    })
+  }
+  crypto.randomBytes(20, (err, buffer)=>{
+    if(err){
+      console.log(err)
+      return res.status(500).json({mensaje: 'Hubo un error. Intenta de nuevo más tarde'})
+    }else{
+      var token = buffer.toString('hex')
+      const msg = {
+        to: req.body.email,
+        from: 'recuperacion@filasinfila.com',
+        subject: 'Reestablecimiento de contraseña de tu registro en FilaSinFila',
+        text: 'Reestablece tu contraseña',
+        html: `
+            <h2>Da click en el siguiente link para reestablecer tu contraseña</h2>
+            <p>${process.env.CLIENT_URL}/resetPass/${token}</p>
+        `
+      }
+      return ownerDB.updateOne({resetLink: token, resetExpires: Date.now() + 86400000}, (err, success) => {
+        if(err){
+          return res.status(400).json({mensaje: 'Hubo un error. Intenta de nuevo más tarde'})
+        }else{
+          sgMail.send(msg)
+          .then(() => {
+            return res.json({mensaje: 'Correo de recuperación de contraseña ha sido enviado'})
+          }, error => {
+            console.error(error);
+        
+            if (error.response) {
+              console.error(error.response.body)
+              return res.status(500).json({mensaje: 'Error al enviar el correo: ' + error.response.body})
+            }
+          })
+        }
+      })
+    }
+  })
+}
+
+const resetPass = async (req, res) => {
+  const resetToken = req.body.resetLink
+  const newPass = req.body.newPass
+  if(resetToken){
+    Owner.findOne({resetLink: resetToken, resetExpires: {$gt: Date.now()}}, (err, owner) => {
+      if(err){
+        return res.status(400).json({mensaje: 'Token de recuperación expirado o no válido'})
+      }
+      npass = bcrypt.hashSync(newPass, saltRounds)
+      const obj = {
+        pass: npass,
+        resetLink: '',
+        resetExpires: ''
+      }
+
+      owner = _.extend(owner, obj)
+      owner.save((err, result) => {
+        if(err){
+          return res.status(400).json({mensaje: 'Error al actualizar la contraseña'})
+        }else{
+          return res.status(200).json({mensaje: 'La contraseña ha sido actualizada'})
+        }
+      })
+    })
+  }else{
+    return res.status(500).json({mensaje: 'Token de recuperación no solicitado o emitido'})
+  }
+}
 
 const loginUser = async (req, res) => {
     let body = req.body;
 
   try {
     // Buscamos email en DB
-    const usuarioDB = await User.findOne({email: body.email});
-    console.log(usuarioDB)
+    //const usuarioDB = await User.findOne({email: body.email});
+    //console.log(usuarioDB)
 
     // Evaluamos si existe el usuario registrado
-    if(!usuarioDB){
+    //if(!usuarioDB){
       // Evaluamos si existe el negocio registrado
       const ownerDB = await Owner.findOne({email: body.email})
       if(!ownerDB){
@@ -43,7 +159,15 @@ const loginUser = async (req, res) => {
         }
         // Generar Token para asociado
         let token = jwt.sign({
-            check: true
+          data: {
+            role: associateDB.role,
+            email: associateDB.email,
+            telefono: associateDB.telefono,
+            nombre: associateDB.nombre,
+            associateID: associateDB._id,
+            businessID: associateDB.businessID,
+            ownerID: associateDB.ownerID
+          }
         }, 'secret', { expiresIn: 60 * 60 * 24 * 30}) // Expira en 30 días
 
         // Pasó las validaciones del asociado
@@ -55,6 +179,7 @@ const loginUser = async (req, res) => {
           nombre: associateDB.nombre,
           associateID: associateDB._id,
           businessID: associateDB.businessID,
+          ownerID: associateDB.ownerID,
           token: token
         })
       }
@@ -91,9 +216,9 @@ const loginUser = async (req, res) => {
         ownerID: ownerDB._id,
         token: token
       })
-    }
+    //}
 
-    // Checamos la contraseña del usuario registrado
+    /*// Checamos la contraseña del usuario registrado
     if( !bcrypt.compareSync(body.pass, usuarioDB.pass) ){
       return res.status(400).json({
         mensaje: 'Usuario o contraseña inválidos',
@@ -121,7 +246,7 @@ const loginUser = async (req, res) => {
       nombre: usuarioDB.nombre,
       userID: usuarioDB._id,
       token: token
-    })
+    })*/
     
   } catch (error) {
     return res.status(500).json({
@@ -131,24 +256,77 @@ const loginUser = async (req, res) => {
   }
 }
 
+const searchTel = async (req, res) => {
+  const telDB = await User.findOne({telefono: req.body.tel})
+  console.log(req.body.tel)
+  if(telDB){
+    return res.json({
+      existe: true,
+      role: telDB.role,
+      sms: telDB.sms,
+      email: telDB.email,
+      telefono: telDB.telefono,
+      nombre: telDB.nombre,
+      userID: telDB._id,
+    })
+  }else{
+    return res.json({
+      existe: false
+    })
+  }
+}
+
+const searchUser = async (req, res) => {
+  const mailDB = await User.findOne({email: req.body.email});
+  const telDB = await User.findOne({telefono: req.body.tel});
+  console.log(req.body.email)
+  console.log(req.body.tel)
+  if(mailDB || telDB){
+    console.log("YA REGISTRADO")
+    return res.status(400).json({
+      mensaje: 'El correo y/o teléfono ya estan registrados.',
+    });
+  } else {
+    console.log("NO REGISTRADO")
+    return res.json({mensaje: "OK"})
+  }
+
+}
+
+const searchOwner = async (req, res) => {
+  const mailDB = await Owner.findOne({email: req.body.email});
+  const telDB = await Owner.findOne({telefono: req.body.tel});
+
+  if(mailDB || telDB){
+    return res.status(400).json({
+      mensaje: 'El correo y/o teléfono ya estan registrados.',
+    });
+  } else {
+    return res.json({mensaje: "OK"})
+  }
+}
+
 const createUser = async (req, res) => {
     const body = {
         nombre: req.body.nombre,
         email: req.body.email,
         telefono: req.body.tel,
+        pass: req.body.pass,
         role: req.body.role
     }
 
-    const mailDB = await User.findOne({email: body.email});
-    const telDB = await User.findOne({tel: body.tel});
+    console.log(body)
+
+    /*const mailDB = await User.findOne({email: req.body.email});
+    const telDB = await User.findOne({telefono: req.body.tel});
 
     if(mailDB || telDB){
       return res.status(400).json({
         mensaje: 'El correo y/o teléfono ya estan registrados.',
       });
-    }
+    }*/
 
-    body.pass = bcrypt.hashSync(req.body.pass, saltRounds)
+    // body.pass = bcrypt.hashSync(req.body.pass, saltRounds)
 
     try {
         const userDB = await User.create(body)
@@ -179,8 +357,8 @@ const createOwner = async (req, res) => {
       role: req.body.role
   }
 
-  const mailDB = await Owner.findOne({email: body.email});
-  const telDB = await Owner.findOne({tel: body.tel});
+  const mailDB = await Owner.findOne({email: req.body.email});
+  const telDB = await Owner.findOne({telefono: req.body.tel});
 
   if(mailDB || telDB){
     return res.status(400).json({
@@ -196,7 +374,7 @@ const createOwner = async (req, res) => {
         message: "OK",
         nombre: ownerDB.nombre,
         email: ownerDB.email,
-        telefono: ownerDB.tel,
+        telefono: ownerDB.telefono,
         nombreF: ownerDB.nombreF,
         direccionF: ownerDB.direccionF,
         role: ownerDB.role,
@@ -216,11 +394,12 @@ const createAssociate = async (req, res) => {
       email: req.body.email,
       telefono: req.body.tel,
       businessID: req.body.businessID,
+      ownerID: req.body.ownerID,
       role: req.body.role
   }
 
-  const mailDB = await Associate.findOne({email: body.email});
-  const telDB = await Associate.findOne({tel: body.tel});
+  const mailDB = await Associate.findOne({email: req.body.email});
+  const telDB = await Associate.findOne({telefono: req.body.tel});
 
   if(mailDB || telDB){
     return res.status(400).json({
@@ -236,10 +415,12 @@ const createAssociate = async (req, res) => {
         message: "OK",
         nombre: associateDB.nombre,
         email: associateDB.email,
-        telefono: associateDB.tel,
+        telefono: associateDB.telefono,
         businessID: associateDB.businessID,
+        ownerID: associateDB.ownerID,
         role: associateDB.role,
-        associateID: associateDB._id
+        associateID: associateDB._id,
+        _id: associateDB._id
       })
   } catch (error) {
       return res.status(500).json({
@@ -249,10 +430,50 @@ const createAssociate = async (req, res) => {
   }
 }
 
+const updateAssociate = async(req, res) => {
+
+  let id = req.params.id;
+  let body = _.pick(req.body, ['nombre', 'email', 'telefono']);
+
+  try {
+    // {new:true} nos devuelve el negocio actualizado
+    const associateDB = await Associate.findByIdAndUpdate(id, body);
+
+    return res.json({mensaje: "OK"});
+
+  } catch (error) {
+    return res.status(400).json({
+      mensaje: 'Ocurrio un error. Intenta de nuevo más tarde',
+      error
+    })
+  }  
+}
+
+const updateAssociatePass = async(req, res) => {
+
+  let id = req.params.id;
+  let pass = req.body.pass
+
+  npass = bcrypt.hashSync(pass, saltRounds)
+
+  try {
+    // {new:true} nos devuelve el negocio actualizado
+    const associateDB = await Associate.findByIdAndUpdate(id, {pass: npass});
+
+    return res.json({mensaje: "OK"});
+
+  } catch (error) {
+    return res.status(400).json({
+      mensaje: 'Ocurrio un error. Intenta de nuevo más tarde',
+      error
+    })
+  }  
+}
+
 const updateUser = async(req, res) => {
 
     let id = req.params.id;
-    let body = _.pick(req.body, ['nombre', 'email', 'tel', 'sms']);
+    let body = _.pick(req.body, ['nombre', 'email', 'telefono', 'sms']);
   
     try {
       // {new:true} nos devuelve el usuario actualizado
@@ -298,7 +519,9 @@ const createBusiness = async(req, res) => {
     ownerID: req.body.ownerID,
     turnoActual: req.body.turnoActual,
     personasActual: req.body.personasActual,
-    maxPersonas: req.body.maxPersonas
+    maxPersonas: req.body.maxPersonas,
+    turnosAcumulado: req.body.turnosAcumulado,
+    principal: req.body.principal
   }
 
   try {
@@ -312,11 +535,14 @@ const createBusiness = async(req, res) => {
       turnoActual: businessDB.turnoActual,
       personasActual: businessDB.personasActual,
       maxPersonas: businessDB.maxPersonas,
-      businessID: businessDB._id
+      turnosAcumulado: businessDB.turnosAcumulado,
+      principal: businessDB.principal,
+      businessID: businessDB._id,
+      _id: businessDB._id
     })
   } catch (error) {
     return res.status(500).json({
-      mensaje: 'Ocurrio un error al registrarte. Intenta de nuevo.',
+      mensaje: 'Ocurrio un error al registrar el negocio. Intenta de nuevo.',
       error
     })
   }
@@ -344,13 +570,44 @@ const updateBusiness = async(req, res) => {
 const checkInBusiness = async(req, res) => {
 
   let id = req.params.id;
-  let body = _.pick(req.body, ['personasActual']);
+  let personasU = req.body.personasActual + 1
+  let turnoU = req.body.turnoActual + 1
 
   try {
     // {new:true} nos devuelve el negocio actualizado
-    const businessDB = await Business.findByIdAndUpdate(id, body, {new: true, runValidators: true});
-
-    return res.json(businessDB);
+    const turnsDB = await Turns.findOne({businessID: id, turnoAsignado: turnoU})
+    if(turnsDB){
+      if(turnsDB.status=="espera"){
+        const businessDB = await Business.findByIdAndUpdate(id, {personasActual: personasU, turnoActual: turnoU});
+        const turnsDB = await Turns.findOneAndUpdate({businessID: id, turnoAsignado: turnoU},{status: "ok"});
+        const userDB = await User.findOne({_id: turnsDB.userID});
+        // Proceso para enviar mensaje al usuario
+        if(businessDB.tokens <= 0){
+          return res.json({mensaje: "ok-usuario-nosms", userID: turnsDB.userID});
+        }else{
+          let userPhoneSMS = userDB.telefono
+          let userPhoneW = userDB.telefono
+          let message = "FilaSinFila: " + userDB.nombre + " ya es tu turno! Puedes ingresar al establecimiento"
+          
+          const resultS = await sendMessage(message, userPhoneSMS);
+          tokensMinus = businessDB.tokens - 1
+          console.log(tokensMinus)
+          const businessDB2 = await Business.findByIdAndUpdate(id, {tokens: tokensMinus});
+          return res.json({mensaje: "ok-usuario", userID: turnsDB.userID});
+        }
+        /*if(userDB.sms=="SMS"){
+          const resultS = await sendMessage(message, userPhoneSMS);
+        } else {
+          const resultW = await sendWhatsapp(message, userPhoneW);
+        }*/
+      }else if(turnsDB.status=="dejado"){
+        const businessDB = await Business.findByIdAndUpdate(id, {turnoActual: turnoU});
+        return res.json({mensaje: "ok-usuariodejado"});
+      }
+    }else{
+        // const businessDB = await Business.findByIdAndUpdate(id, {personasActual: personasU});
+        return res.json({mensaje: "ok-nousuario"});
+    }
 
   } catch (error) {
     return res.status(400).json({
@@ -363,13 +620,13 @@ const checkInBusiness = async(req, res) => {
 const checkOutBusiness = async(req, res) => {
 
   let id = req.params.id;
-  let body = _.pick(req.body, ['personasActual', 'turnoActual']);
-
+  let personasU = req.body.personasActual - 1
+ 
   try {
-    // {new:true} nos devuelve el negocio actualizado
-    const businessDB = await Business.findByIdAndUpdate(id, body, {new: true, runValidators: true});
-
-    return res.json(businessDB);
+    
+    const businessDB = await Business.findByIdAndUpdate(id, {personasActual: personasU});
+  
+    return res.json({mensaje: "OK"});
 
   } catch (error) {
     return res.status(400).json({
@@ -508,6 +765,8 @@ const getAssociate = async(req, res) => {
     nombre: associateDB.nombre,
     associateID: associateDB._id,
     businessID: associateDB.businessID,
+    ownerID: associateDB.ownerID,
+    _id: associateDB._id
   })
 
 
@@ -517,7 +776,7 @@ const getBusiness = async(req, res) => {
 
     let id = req.params.id;
 
-    const businessDB = await Business.findOne({ownerID: id});
+    const businessDB = await Business.findOne({ownerID: id, principal: true});
 
     return res.json({
       nombreC: businessDB.nombreC,
@@ -527,10 +786,26 @@ const getBusiness = async(req, res) => {
       turnoActual: businessDB.turnoActual,
       personasActual: businessDB.personasActual,
       maxPersonas: businessDB.maxPersonas,
-      businessID: businessDB._id
+      turnosAcumulado: businessDB.turnosAcumulado,
+      businessID: businessDB._id,
+      _id: businessDB._id
     })
 
 
+}
+
+const getListBusiness = async(req, res) => {
+  let id = req.params.id;
+  const businessDB = await Business.find({ownerID: id, principal: false})
+  console.log(businessDB)
+  return res.json(businessDB)
+}
+
+const getListAssociates = async(req, res) => {
+  let id = req.params.id;
+  const associateDB = await Associate.find({ownerID: id})
+  console.log(associateDB)
+  return res.json(associateDB)
 }
 
 const generateQR = async(req, res) => {
@@ -543,34 +818,57 @@ const generateQR = async(req, res) => {
 
 const detectQR = async(req, res) => {
   let id = req.params.id;
+  console.log(id)
   const businessQR = await Business.findOne({_id: id});
-  if(!businessQR){
-    return res.status(400).json({
-      mensaje: 'No se encontro ningún negocio registrado con los datos del QR escaneado',
-    });
-  }
+  
   return res.json({
-    nombreC: businessDB.nombreC,
-    direccionC: businessDB.direccionC,
-    tokens: businessDB.tokens,
-    ownerID: businessDB.ownerID,
-    turnoActual: businessDB.turnoActual,
-    personasActual: businessDB.personasActual,
-    maxPersonas: businessDB.maxPersonas,
-    businessID: businessDB._id
+    nombreC: businessQR.nombreC,
+    direccionC: businessQR.direccionC,
+    tokens: businessQR.tokens,
+    ownerID: businessQR.ownerID,
+    turnoActual: businessQR.turnoActual,
+    turnosAcumulado: businessQR.turnosAcumulado,
+    personasActual: businessQR.personasActual,
+    maxPersonas: businessQR.maxPersonas,
+    businessID: businessQR._id
   })
 }
 
 const takeTurn = async(req, res) => {
 
   let id = req.params.id;
-  let body = _.pick(req.body, ['turnoActual']);
 
   try {
     // {new:true} nos devuelve el negocio actualizado
-    const userDB = await User.findByIdAndUpdate(id, body, {new: true, runValidators: true});
+    const businessDB = await Business.findOne({_id: id});
+    const turnsDB = await Turns.create({
+      userID:  req.body.userID,
+      businessID: businessDB._id,
+      status: "espera",
+      turnoAsignado: businessDB.turnosAcumulado + 1
+    });
+    const updateB = await Business.findByIdAndUpdate(id, {turnosAcumulado: businessDB.turnosAcumulado + 1})
+    const updateU = await User.findByIdAndUpdate(req.body.userID, {turnoActual: businessDB.turnosAcumulado + 1})
 
-    return res.json(userDB);
+    return res.json({mensaje: "OK", turnID: turnsDB._id, turnoActual: turnsDB.turnoAsignado, turnoNegocio: businessDB.turnoActual});
+
+  } catch (error) {
+    return res.status(400).json({
+      mensaje: 'Ocurrio un error. Intenta de nuevo más tarde',
+      error
+    })
+  } 
+}
+
+const getTurn = async(req, res) => {
+
+  let id = req.params.id;
+
+  try {
+    // {new:true} nos devuelve el negocio actualizado
+    const turnsDB = await Turns.findOne({_id: id});
+    
+    return res.json({status: turnsDB.status});
 
   } catch (error) {
     return res.status(400).json({
@@ -583,13 +881,12 @@ const takeTurn = async(req, res) => {
 const dropTurn = async(req, res) => {
 
   let id = req.params.id;
-  let body = _.pick(req.body, ['turnoActual']);
 
   try {
     // {new:true} nos devuelve el negocio actualizado
-    const userDB = await User.findByIdAndUpdate(id, body, {new: true, runValidators: true});
-
-    return res.json(userDB);
+    const turnsDB = await Turns.findByIdAndUpdate(id, {status:"dejado"});
+    
+    return res.json({mensaje: "OK"});
 
   } catch (error) {
     return res.status(400).json({
@@ -645,7 +942,7 @@ const postMessage = async (req, res) => {
 
     await SMS.create({Body: req.body.message, To: req.body.phone});
 
-    res.redirect('/');
+    return res.json({mensaje: "OK"})
 }
 
 const postWhatsapp = async (req, res) => {
@@ -660,7 +957,7 @@ const postWhatsapp = async (req, res) => {
 
     await SMS.create({Body: req.body.message, To: req.body.phone});
 
-    res.redirect('/');
+    return res.json({mensaje: "OK"})
 
 }
 
@@ -681,19 +978,41 @@ const receiveMessage = async (req, res) => {
     res.send(twiml.toString());
 }
 
+const rateBusiness = async(req, res) => {
+
+  try {
+    const ratesDB = await Rates.create({userID: req.body.userID, businessID: req.body.businessID, rateOverall: req.body.rateOverall, rateTime: req.body.rateTime})
+    return res.json({
+      message: "OK"
+    })
+  } catch (error) {
+    return res.status(500).json({
+      mensaje: 'Ocurrio un error al calificar. Intenta de nuevo.',
+      error
+    })
+  }
+}
+
 module.exports = {
     indexController,
     postMessage,
     postWhatsapp,
     receiveMessage,
     loginUser,
+    forgotPass,
+    resetPass,
     createUser,
     createOwner,
     createAssociate,
     createBusiness,
+    searchTel,
+    searchUser,
+    searchOwner,
     updateUser,
     updateOwner,
     updateBusiness,
+    updateAssociate,
+    updateAssociatePass,
     deleteBusiness,
     deleteAssociate,
     checkInBusiness,
@@ -704,10 +1023,15 @@ module.exports = {
     getOwner,
     getAssociate,
     getBusiness,
+    getListBusiness,
+    getListAssociates,
     generateQR,
     detectQR,
     takeTurn,
+    getTurn,
     dropTurn,
     sendCodeNumber,
-    verifyCodeNumber
+    verifyCodeNumber,
+    rateBusiness,
+    paymentIntent
 }

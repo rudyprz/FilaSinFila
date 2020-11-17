@@ -11,7 +11,7 @@ async function sendMessage(body, phone) {
     try {
         const message = await client.messages.create({
             to: phone,
-            from: '+12083699856',
+            from: config.twiliophone,
             body
         })
         return message     

@@ -8,7 +8,9 @@ const businessSchema = new Schema({
     tokens: Number,
     turnoActual: Number,
     personasActual: Number,
-    maxPersonas: Number
+    maxPersonas: Number,
+    turnosAcumulado: Number,
+    principal: Boolean
 });
 
 module.exports = model('business', businessSchema);
